@@ -9,7 +9,9 @@
         "php": "^8.2",
         "laravel/framework": "^12.0",
         "laravel/tinker": "^2.10.1",
+        "lcobucci/jwt": "^5.4.3 <5.5",
         "mercadopago/dx-php": "^3.10 <3.12",
+        "paragonie/sodium_compat_ext_sodium": "^1.0",
         "php-open-source-saver/jwt-auth": "^2.8.3 <2.9",
         "spatie/laravel-permission": "^6.25"
     },
