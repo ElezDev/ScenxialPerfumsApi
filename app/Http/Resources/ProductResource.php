@@ -25,6 +25,7 @@ class ProductResource extends JsonResource
             'category' => new CategoryResource($this->whenLoaded('category')),
             'brand' => new BrandResource($this->whenLoaded('brand')),
             'images' => ProductImageResource::collection($this->whenLoaded('images')),
+            'decants' => DecantResource::collection($this->whenLoaded('decants')),
             'created_at' => $this->created_at,
         ];
     }

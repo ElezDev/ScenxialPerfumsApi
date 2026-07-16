@@ -56,4 +56,9 @@ class Product extends Model
     {
         return $this->hasMany(ProductImage::class)->where('is_primary', true);
     }
+
+    public function decants(): HasMany
+    {
+        return $this->hasMany(Decant::class)->orderBy('sort_order');
+    }
 }

@@ -15,6 +15,12 @@ class OrderResource extends JsonResource
             'status' => $this->status,
             'payment_status' => $this->payment_status,
             'payment_method' => $this->payment_method,
+            'payment_method_label' => match ($this->payment_method) {
+                'cash_on_delivery' => 'Contra entrega',
+                'mercadopago' => 'Mercado Pago',
+                default => $this->payment_method,
+            },
+            'is_cash_on_delivery' => $this->payment_method === 'cash_on_delivery',
             'subtotal' => $this->subtotal,
             'shipping_cost' => $this->shipping_cost,
             'total' => $this->total,

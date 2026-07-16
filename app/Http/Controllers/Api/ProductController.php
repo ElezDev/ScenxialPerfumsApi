@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ProductResource;
+use App\Models\Decant;
 use App\Models\Product;
 use App\Models\ProductImage;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +17,7 @@ class ProductController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $query = Product::query()
-            ->with(['category', 'brand', 'images']);
+            ->with(['category', 'brand', 'images', 'decants']);
 
         if ($request->boolean('active_only', true)) {
             $query->where('is_active', true);
@@ -76,18 +77,29 @@ class ProductController extends Controller
             'images.*.path' => ['required', 'string', 'max:500'],
             'images.*.is_primary' => ['boolean'],
             'images.*.sort_order' => ['integer', 'min:0'],
+            'decants' => ['nullable', 'array', 'max:10'],
+            'decants.*.ml' => ['required', 'integer', 'min:1'],
+            'decants.*.price' => ['required', 'numeric', 'min:0'],
+            'decants.*.stock' => ['nullable', 'integer', 'min:0'],
+            'decants.*.is_active' => ['boolean'],
+            'decants.*.sort_order' => ['integer', 'min:0'],
         ]);
 
         $validated['slug'] ??= Str::slug($validated['name']);
         $images = $validated['images'] ?? null;
-        unset($validated['images']);
+        $decants = $validated['decants'] ?? null;
+        unset($validated['images'], $validated['decants']);
 
         $product = Product::create($validated);
 
         if ($images) {
             $this->syncImages($product, $images);
         }
-        $product->load(['category', 'brand', 'images']);
+
+        if ($decants) {
+            $this->syncDecants($product, $decants);
+        }
+        $product->load(['category', 'brand', 'images', 'decants']);
 
         return response()->json([
             'message' => 'Producto creado.',
@@ -97,7 +109,7 @@ class ProductController extends Controller
 
     public function show(Product $product): ProductResource
     {
-        $product->load(['category', 'brand', 'images']);
+        $product->load(['category', 'brand', 'images', 'decants']);
 
         return new ProductResource($product);
     }
@@ -107,7 +119,7 @@ class ProductController extends Controller
         $product = Product::query()
             ->where('slug', $slug)
             ->where('is_active', true)
-            ->with(['category', 'brand', 'images'])
+            ->with(['category', 'brand', 'images', 'decants'])
             ->first();
 
         if (! $product) {
@@ -137,17 +149,28 @@ class ProductController extends Controller
             'images.*.path' => ['required', 'string', 'max:500'],
             'images.*.is_primary' => ['boolean'],
             'images.*.sort_order' => ['integer', 'min:0'],
+            'decants' => ['nullable', 'array', 'max:10'],
+            'decants.*.ml' => ['required', 'integer', 'min:1'],
+            'decants.*.price' => ['required', 'numeric', 'min:0'],
+            'decants.*.stock' => ['nullable', 'integer', 'min:0'],
+            'decants.*.is_active' => ['boolean'],
+            'decants.*.sort_order' => ['integer', 'min:0'],
         ]);
 
         $images = $validated['images'] ?? null;
-        unset($validated['images']);
+        $decants = $validated['decants'] ?? null;
+        unset($validated['images'], $validated['decants']);
 
         $product->update($validated);
 
         if ($images !== null) {
             $this->syncImages($product, $images);
         }
-        $product->load(['category', 'brand', 'images']);
+
+        if ($decants !== null) {
+            $this->syncDecants($product, $decants);
+        }
+        $product->load(['category', 'brand', 'images', 'decants']);
 
         return response()->json([
             'message' => 'Producto actualizado.',
@@ -172,6 +195,22 @@ class ProductController extends Controller
                 'path' => $image['path'],
                 'is_primary' => $image['is_primary'] ?? ($index === 0),
                 'sort_order' => $image['sort_order'] ?? $index,
+            ]);
+        }
+    }
+
+    private function syncDecants(Product $product, array $decants): void
+    {
+        $product->decants()->delete();
+
+        foreach ($decants as $index => $decant) {
+            Decant::create([
+                'product_id' => $product->id,
+                'ml' => $decant['ml'],
+                'price' => $decant['price'],
+                'stock' => $decant['stock'] ?? 0,
+                'is_active' => $decant['is_active'] ?? true,
+                'sort_order' => $decant['sort_order'] ?? $index,
             ]);
         }
     }

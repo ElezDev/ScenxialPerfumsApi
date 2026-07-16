@@ -12,6 +12,9 @@ class OrderItemResource extends JsonResource
         return [
             'id' => $this->id,
             'product_id' => $this->product_id,
+            'decant_id' => $this->decant_id,
+            'decant_ml' => $this->decant_ml,
+            'is_decant' => ! is_null($this->decant_id),
             'product_name' => $this->product_name,
             'product_sku' => $this->product_sku,
             'quantity' => $this->quantity,

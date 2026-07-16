@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\OrderResource;
+use App\Mail\OrderConfirmationMail;
+use App\Models\Decant;
 use App\Models\Order;
 use App\Models\Product;
 use App\Services\MercadoPagoService;
@@ -11,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use MercadoPago\Exceptions\MPApiException;
 
@@ -40,7 +43,9 @@ class OrderController extends Controller
         $validated = $request->validate([
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['required', 'exists:products,id'],
+            'items.*.decant_id' => ['nullable', 'exists:decants,id'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
+            'payment_method' => ['nullable', 'in:mercadopago,cash_on_delivery'],
             'customer_name' => ['required', 'string', 'max:255'],
             'customer_email' => ['required', 'email', 'max:255'],
             'customer_phone' => ['nullable', 'string', 'max:30'],
@@ -52,7 +57,10 @@ class OrderController extends Controller
             'notes' => ['nullable', 'string'],
         ]);
 
-        $order = DB::transaction(function () use ($validated, $request) {
+        $paymentMethod = $validated['payment_method'] ?? 'mercadopago';
+        $isCashOnDelivery = $paymentMethod === 'cash_on_delivery';
+
+        $order = DB::transaction(function () use ($validated, $request, $paymentMethod) {
             $subtotal = 0;
             $orderItems = [];
 
@@ -63,23 +71,50 @@ class OrderController extends Controller
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                if ($product->stock < $item['quantity']) {
-                    abort(422, "Stock insuficiente para {$product->name}.");
+                $decant = null;
+
+                if (! empty($item['decant_id'])) {
+                    $decant = Decant::query()
+                        ->where('id', $item['decant_id'])
+                        ->where('product_id', $product->id)
+                        ->where('is_active', true)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    if ($decant->stock < $item['quantity']) {
+                        abort(422, "Stock insuficiente del decant de {$decant->ml}ml para {$product->name}.");
+                    }
+
+                    $unitPrice = $decant->price;
+                } else {
+                    if ($product->stock < $item['quantity']) {
+                        abort(422, "Stock insuficiente para {$product->name}.");
+                    }
+
+                    $unitPrice = $product->price;
                 }
 
-                $lineTotal = $product->price * $item['quantity'];
+                $lineTotal = $unitPrice * $item['quantity'];
                 $subtotal += $lineTotal;
 
                 $orderItems[] = [
                     'product_id' => $product->id,
-                    'product_name' => $product->name,
+                    'decant_id' => $decant?->id,
+                    'decant_ml' => $decant?->ml,
+                    'product_name' => $decant
+                        ? "{$product->name} - Decant {$decant->ml}ml"
+                        : $product->name,
                     'product_sku' => $product->sku,
                     'quantity' => $item['quantity'],
-                    'unit_price' => $product->price,
+                    'unit_price' => $unitPrice,
                     'total_price' => $lineTotal,
                 ];
 
-                $product->decrement('stock', $item['quantity']);
+                if ($decant) {
+                    $decant->decrement('stock', $item['quantity']);
+                } else {
+                    $product->decrement('stock', $item['quantity']);
+                }
             }
 
             $shippingCost = $validated['shipping_cost'] ?? 0;
@@ -89,7 +124,7 @@ class OrderController extends Controller
                 'user_id' => $request->user()?->id,
                 'status' => 'pending',
                 'payment_status' => 'pending',
-                'payment_method' => 'mercadopago',
+                'payment_method' => $paymentMethod,
                 'subtotal' => $subtotal,
                 'shipping_cost' => $shippingCost,
                 'total' => $subtotal + $shippingCost,
@@ -110,16 +145,20 @@ class OrderController extends Controller
             return $order->load('items');
         });
 
+        if ($isCashOnDelivery) {
+            $this->sendConfirmationEmail($order);
+
+            return response()->json([
+                'message' => 'Pedido registrado. Pagarás contra entrega.',
+                'data' => new OrderResource($order),
+                'payment' => null,
+            ], 201);
+        }
+
         try {
             $preference = $this->mercadoPagoService->createPreference($order);
         } catch (MPApiException $exception) {
-            foreach ($order->items as $item) {
-                if ($item->product_id) {
-                    Product::query()
-                        ->where('id', $item->product_id)
-                        ->increment('stock', $item->quantity);
-                }
-            }
+            $this->restoreStock($order);
 
             $order->delete();
 
@@ -143,6 +182,30 @@ class OrderController extends Controller
                 'sandbox_init_point' => $preference['sandbox_init_point'] ?? null,
             ],
         ], 201);
+    }
+
+    private function sendConfirmationEmail(Order $order): void
+    {
+        if (empty($order->customer_email)) {
+            return;
+        }
+
+        try {
+            Mail::to($order->customer_email)->queue(new OrderConfirmationMail($order));
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+    }
+
+    private function restoreStock(Order $order): void
+    {
+        foreach ($order->items as $item) {
+            if ($item->decant_id) {
+                Decant::query()->where('id', $item->decant_id)->increment('stock', $item->quantity);
+            } elseif ($item->product_id) {
+                Product::query()->where('id', $item->product_id)->increment('stock', $item->quantity);
+            }
+        }
     }
 
     public function show(Request $request, Order $order): OrderResource|JsonResponse

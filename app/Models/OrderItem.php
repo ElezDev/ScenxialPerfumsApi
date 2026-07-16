@@ -12,6 +12,8 @@ class OrderItem extends Model
     protected $fillable = [
         'order_id',
         'product_id',
+        'decant_id',
+        'decant_ml',
         'product_name',
         'product_sku',
         'quantity',
@@ -35,5 +37,10 @@ class OrderItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function decant(): BelongsTo
+    {
+        return $this->belongsTo(Decant::class);
     }
 }

@@ -13,6 +13,7 @@
         "mercadopago/dx-php": "^3.10 <3.12",
         "paragonie/sodium_compat_ext_sodium": "^1.0",
         "php-open-source-saver/jwt-auth": "^2.8.3 <2.9",
+        "resend/resend-php": "^1.5",
         "spatie/laravel-permission": "^6.25"
     },
     "require-dev": {

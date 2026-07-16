@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Mail\OrderConfirmationMail;
 use App\Models\Order;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use MercadoPago\Client\Payment\PaymentClient;
 use MercadoPago\Client\Preference\PreferenceClient;
 use MercadoPago\Exceptions\MPApiException;
@@ -99,11 +101,17 @@ class MercadoPagoService
                 return;
             }
 
+            $wasPaid = $order->payment_status === 'paid';
+
             $order->update([
                 'mercadopago_payment_id' => (string) $payment->id,
                 'payment_status' => $this->mapPaymentStatus($payment->status),
                 'status' => $payment->status === 'approved' ? 'processing' : $order->status,
             ]);
+
+            if (! $wasPaid && $order->payment_status === 'paid' && ! empty($order->customer_email)) {
+                Mail::to($order->customer_email)->queue(new OrderConfirmationMail($order->load('items')));
+            }
         } catch (\Throwable $exception) {
             Log::error('MercadoPago webhook error', [
                 'payment_id' => $paymentId,
